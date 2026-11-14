@@ -1,0 +1,1 @@
+{"name":"painmap-tools","private":true,"type":"module","dependencies":{"meshoptimizer":"^0.21.0","three":"^0.160.0"}}

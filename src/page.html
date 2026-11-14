@@ -1,0 +1,227 @@
+<title>PainMap 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#0b6e74">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: instrument-panel workstation — tools left, 3D body centre, inspector + report right; stacks on phones */
+:root {
+  --bg: #e9eef1; --panel: #ffffff; --panel-2: #f4f7f8; --ink: #15202a; --muted: #5a6875; --line: #d3dbe0;
+  --accent: #0b6e74; --accent-ink: #ffffff; --accent-soft: #d8eeee; --danger: #b3261e; --viewer-a: #f3f6f7; --viewer-b: #d5dee3;
+  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0e1418; --panel: #151d23; --panel-2: #1b252c; --ink: #e3eaef; --muted: #93a2ae; --line: #2a3740; --accent: #3db1b8; --accent-ink: #062224; --accent-soft: #163a3d; --danger: #ef7a72; --viewer-a: #1d2830; --viewer-b: #0f171c; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #0e1418; --panel: #151d23; --panel-2: #1b252c; --ink: #e3eaef; --muted: #93a2ae; --line: #2a3740; --accent: #3db1b8; --accent-ink: #062224; --accent-soft: #163a3d; --danger: #ef7a72; --viewer-a: #1d2830; --viewer-b: #0f171c; color-scheme: dark; }
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font); }
+* { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 6px 10px; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.danger { color: var(--danger); }
+input, select, textarea { width: 100%; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
+input[type=range] { padding: 0; accent-color: var(--accent); background: none; border: 0; }
+input[type=checkbox] { width: auto; accent-color: var(--accent); }
+textarea { resize: vertical; }
+.app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+.top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { font-weight: 600; font-size: 17px; letter-spacing: .01em; display: flex; align-items: baseline; gap: 8px; }
+.brand span { font: 500 11px/1 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 6px 14px; background: var(--panel); }
+.seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); }
+.hdr-actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.layout { display: grid; grid-template-columns: 286px minmax(0, 1fr) 390px; min-height: 0; }
+.panel { background: var(--panel); overflow-y: auto; min-height: 0; min-width: 0; }
+.left { border-right: 1px solid var(--line); }
+.right { border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+.panel section { padding: 12px 14px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+h2 { font: 600 11px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0; }
+h3 { margin: 0; font-size: 16px; text-wrap: balance; }
+h4 { margin: 4px 0 0; font-size: 13px; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.pad { padding: 12px 14px; display: grid; gap: 10px; }
+.credit p { font-size: 11.5px; color: var(--muted); }
+.credit a { color: var(--accent); }
+#tools { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+#tools button { display: grid; justify-items: center; gap: 2px; padding: 7px 2px; font-size: 11.5px; }
+#tools button svg { width: 20px; height: 20px; }
+#tools button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.hint { font-size: 12px; color: var(--muted); }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+#qualList { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.qual { display: flex; align-items: center; gap: 6px; text-align: left; font-size: 12.5px; padding: 5px 7px; }
+.qual i, .layer i, .mrow > i { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 1px solid rgba(0,0,0,.15); }
+.qual[aria-pressed=true] { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.layer { display: flex; gap: 8px; align-items: center; padding: 3px 0; cursor: pointer; }
+.presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.presets button { font-size: 12px; padding: 4px 8px; }
+.mrow { display: flex; align-items: center; gap: 6px; padding: 4px; border-radius: 6px; }
+.mrow.sel { background: var(--accent-soft); }
+.mname { flex: 1; min-width: 0; text-align: left; border: 0; background: none; padding: 2px 4px; display: grid; }
+.mname small { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ico { border: 0; background: none; padding: 4px 6px; color: var(--muted); }
+.viewer { position: relative; min-width: 0; min-height: 0; background: radial-gradient(ellipse at 50% 35%, var(--viewer-a), var(--viewer-b)); overflow: hidden; }
+#c { width: 100%; height: 100%; display: block; touch-action: none; }
+.ov { position: absolute; z-index: 2; }
+#orient { bottom: 48px; left: 10px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; font: 500 12px var(--mono); max-width: calc(100% - 20px); }
+.views { top: 10px; right: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.views button, .zooms button { font-size: 12px; padding: 4px 8px; background: color-mix(in srgb, var(--panel) 92%, transparent); }
+.zooms { bottom: 10px; left: 10px; right: 10px; display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+.zooms span { font: 500 11px var(--mono); color: var(--muted); align-self: center; white-space: nowrap; padding-right: 4px; }
+.zooms button { white-space: nowrap; flex: none; }
+#tip { pointer-events: none; background: var(--ink); color: var(--panel); padding: 4px 8px; border-radius: 5px; font-size: 12px; max-width: 250px; }
+#loading { inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 70%, transparent); z-index: 5; }
+#loading div { background: var(--panel); border: 1px solid var(--line); padding: 14px 18px; border-radius: var(--r); font-weight: 500; }
+#exBanner { bottom: 82px; left: 10px; background: #fff5d6; color: #4a3b00; border: 1px solid #e5cf7a; border-radius: 6px; padding: 6px 10px; font-size: 12.5px; display: flex; gap: 8px; align-items: center; max-width: calc(100% - 20px); }
+#exBanner button { padding: 2px 8px; font-size: 12px; background: #fff; color: #4a3b00; }
+#dermLegend { top: 46px; left: 10px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 11.5px; max-width: 290px; }
+#inspector { flex: none; }
+#inspBody { display: grid; gap: 8px; }
+.where .meta, .meta { color: var(--muted); font-size: 12.5px; }
+.side-pill { display: inline-block; font: 600 11px var(--mono); letter-spacing: .05em; padding: 2px 7px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); margin-bottom: 4px; }
+.side-pill.left { border-color: #2c7fb8; color: #2c7fb8; } .side-pill.right { border-color: #c2571a; color: #c2571a; }
+.chips-t { font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-top: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--panel-2); }
+.chip.on, .chip[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.visc { font-size: 12.5px; }
+.card { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; background: var(--panel-2); display: grid; gap: 4px; }
+.card-h { display: flex; gap: 6px; }
+.lay, .side { font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: .07em; padding: 1px 6px; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); }
+.lay-muscle { color: #b4554c; } .lay-bone { color: #8a7a4f; } .lay-nerve { color: #a88400; } .lay-tendon { color: #6a6a6a; } .lay-ligament { color: #9a7d1e; } .lay-cartilage { color: #2f7f9c; } .lay-joint { color: var(--accent); }
+.card .plain { color: var(--muted); font-style: italic; }
+dl { margin: 2px 0 0; display: grid; gap: 3px; } dt { font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-top: 4px; } dd { margin: 0; }
+#inspLock { font-size: 11.5px; padding: 2px 8px; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.tabs button { flex: 1; border: 0; border-radius: 0; border-bottom: 2px solid transparent; padding: 10px 6px; font-weight: 500; background: none; }
+.tabs button[aria-selected=true] { border-bottom-color: var(--accent); color: var(--accent); }
+.fl { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.fl > input, .fl > select, .fl > textarea { color: var(--ink); font-size: 14px; }
+.fl b { color: var(--ink); font-family: var(--mono); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.chk { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+.chips.sel .chip { font-size: 11.5px; }
+.anat { border-top: 1px dashed var(--line); padding-top: 8px; display: grid; gap: 6px; }
+.pat { font-size: 12.5px; background: var(--panel-2); border-left: 3px solid var(--accent); padding: 6px 8px; border-radius: 4px; }
+#promptOut { font: 12.5px/1.5 var(--mono); min-height: 340px; }
+#modal { position: fixed; inset: 0; background: rgba(5,12,16,.55); display: grid; place-items: center; z-index: 20; padding: 16px; }
+#modalBody { background: var(--panel); border-radius: 10px; padding: 18px; width: min(720px, 100%); max-height: 90vh; overflow: auto; display: grid; gap: 10px; }
+#exImg { width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+@media (max-width: 1180px) { .layout { grid-template-columns: 250px minmax(0, 1fr) 330px; } }
+@media (max-width: 900px) {
+  .app { height: auto; display: block; }
+  .layout { display: flex; flex-direction: column; }
+  .viewer { height: 64vh; height: 64dvh; order: 0; }
+  .left { order: 1; border-right: 0; } .right { order: 2; border-left: 0; }
+  .panel { overflow: visible; }
+  .hdr-actions { margin-left: 0; }
+  .left section, .right section, .pad { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">PainMap 3D <span>clinical pain mapping</span></div>
+    <div class="seg" id="sexSeg" role="group" aria-label="Body model"><button data-sex="male" aria-pressed="true">Male</button><button data-sex="female" aria-pressed="false">Female</button></div>
+    <div class="hdr-actions">
+      <button id="undoBtn" disabled>Undo</button>
+      <button id="saveBtn">Save / load</button>
+      <button id="imgBtn">Body images</button>
+      <button id="clearBtn" class="danger">Clear marks</button>
+    </div>
+  </header>
+  <main class="layout">
+    <aside class="panel left">
+      <section>
+        <h2>Tool</h2>
+        <div id="tools">
+          <button data-tool="explore" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Explore</button>
+          <button data-tool="brush" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20c3 0 5-1.5 5-4a2.5 2.5 0 015 0"/><path d="M12 14l8-10"/></svg>Area</button>
+          <button data-tool="line" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 18c4-1 4-9 8-10s4 6 8 3"/><path d="M17 8l3 3-4 1"/></svg>Path</button>
+          <button data-tool="point" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="7"/></svg>Point</button>
+          <button data-tool="erase" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 20h12"/><path d="M5 15l9-9 5 5-8 8H8z"/></svg>Erase</button>
+        </div>
+        <div id="brushRow" class="fl">Brush size <b id="brushVal">2.5 cm</b><input id="brushSize" type="range" min="0.6" max="8" step="0.1" value="2.5"></div>
+        <p id="toolHint" class="hint"></p>
+      </section>
+      <section>
+        <h2>Pain type</h2>
+        <div id="qualList"></div>
+      </section>
+      <section>
+        <h2>Anatomy layers</h2>
+        <div id="layerList"></div>
+        <label class="fl">Skin shows<select id="skinMode"><option value="skin">Skin</option><option value="derm">Dermatome map (skin strips by spinal nerve)</option><option value="muscles">Muscle map (muscle under each spot)</option></select></label>
+        <div id="xrayRow" class="fl" hidden>See-through <input id="xray" type="range" min="4" max="60" value="22"></div>
+        <div class="presets"><button data-preset="skin">Skin only</button><button data-preset="muscles">Muscles</button><button data-preset="skeleton">Skeleton</button><button data-preset="nerves">Nerves + bones</button><button data-preset="joints">Joints &amp; connective</button><button data-preset="all">Everything</button></div>
+      </section>
+      <section>
+        <h2>Your marks</h2>
+        <div id="markList"></div>
+      </section>
+      <section class="credit">
+        <p>Bones, muscles, cartilage, organs and major vessels: <a href="https://dbarchive.biosciencedbc.jp/en/bodyparts3d/" target="_blank" rel="noopener">BodyParts3D</a>, © The Database Center for Life Science, licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC Attribution 4.0 International</a>. Re-posed and simplified for this app.</p>
+        <p>Nerves (except in the eye socket), joint ligaments, menisci and the paintable body surface are simplified hand-made models, marked "schematic".</p>
+      </section>
+    </aside>
+    <section class="viewer" aria-label="3D body">
+      <canvas id="c"></canvas>
+      <div id="orient" class="ov" aria-live="polite"></div>
+      <div id="exBanner" class="ov" hidden>Example pain map loaded to show how it works. <button id="exClear">Clear and start mine</button></div>
+      <div class="ov views"><button data-view="front">Front</button><button data-view="back">Back</button><button data-view="left">Left side</button><button data-view="right">Right side</button><button data-view="top">Top</button><button data-view="below">Below</button></div>
+      <div class="ov zooms"><span>ZOOM TO</span><button data-view="front">Whole body</button><button data-view="face">Face &amp; jaw</button><button data-view="head_side">Side of head</button><button data-view="neck_back">Neck &amp; upper back</button><button data-view="chest">Chest</button><button data-view="back_low">Low back</button><button data-view="groin">Groin &amp; genitals</button><button data-view="perineum">Perineum (from below)</button><button data-view="buttocks">Buttocks</button><button data-view="lhand">Left hand (palm)</button><button data-view="lhand_back">Left hand (back)</button><button data-view="rhand">Right hand (palm)</button><button data-view="rhand_back">Right hand (back)</button><button data-view="lfoot">Left foot</button><button data-view="rfoot">Right foot</button><button data-view="soles">Soles</button></div>
+      <div id="dermLegend" class="ov" hidden><b>Dermatomes</b>: blues C (neck/arms), greens T (trunk), oranges L (legs front), purples S (back of legs, buttocks, genitals), grey-teal V (face, trigeminal nerve). Hover to see each strip.</div>
+      <div id="tip" class="ov" hidden></div>
+      <div id="loading" class="ov"><div id="loadingMsg">Building the 3D body…</div></div>
+    </section>
+    <aside class="panel right">
+      <section id="inspector">
+        <div class="row"><h2 style="flex:1">Anatomy inspector</h2><button id="inspLock" hidden>Pinned · unpin</button></div>
+        <div id="inspBody"></div>
+      </section>
+      <nav class="tabs" role="tablist"><button data-tab="mark" aria-selected="true">Selected mark</button><button data-tab="about" aria-selected="false">About you</button><button data-tab="prompt" aria-selected="false">Prompt</button></nav>
+      <div id="tab-mark" class="tabpane"></div>
+      <div id="tab-about" class="tabpane" hidden>
+        <div class="pad">
+          <label class="fl">This map describes<select data-p="perspective"><option value="self">Me (written as "I")</option><option value="other">A patient (written as "the patient")</option></select></label>
+          <div class="two"><label class="fl">Age<input data-p="age" inputmode="numeric"></label><label class="fl">Dominant hand<select data-p="hand"><option value=""></option><option>Right</option><option>Left</option><option>Both</option></select></label></div>
+          <div class="two"><label class="fl">Height<input data-p="height" placeholder="e.g. 178 cm"></label><label class="fl">Weight<input data-p="weight" placeholder="e.g. 80 kg"></label></div>
+          <label class="fl">Work and daily posture<input data-p="occupation" placeholder="e.g. desk job, 8 h sitting; or lifting at work"></label>
+          <label class="fl">Activity and sport<input data-p="activity"></label>
+          <label class="fl">How it started<textarea data-p="story" rows="2" placeholder="What happened, when, and how it has changed"></textarea></label>
+          <label class="fl">Relevant conditions, injuries or surgery<textarea data-p="conditions" rows="2"></textarea></label>
+          <label class="fl">Current medicines<input data-p="meds"></label>
+          <label class="fl">Already tried (and what happened)<textarea data-p="tried" rows="2"></textarea></label>
+          <label class="fl">Goals<input data-p="goals" placeholder="e.g. sleep through the night, return to running"></label>
+          <div class="fl">Warning signs (tick any that apply)<div id="flagList" style="display:grid;gap:4px"></div></div>
+          <label class="chk"><input type="checkbox" data-p="noFlags"><span>I have checked this list and none apply</span></label>
+          <label class="fl">Questions for my clinician (one per line)<textarea data-p="questions" rows="3"></textarea></label>
+          <label class="fl">Anything else to include in the prompt<textarea data-p="extra" rows="2"></textarea></label>
+        </div>
+      </div>
+      <div id="tab-prompt" class="tabpane" hidden>
+        <div class="pad">
+          <label class="fl">What is this prompt for?<select id="purpose"><option value="physician">Describe my pain to a doctor or physio</option><option value="research">Ask an AI for exercises, stretches &amp; self-care</option><option value="differential">Ask an AI what could cause it</option><option value="full">Ask an AI for a full assessment and plan</option></select></label>
+          <label class="chk"><input type="checkbox" id="incAnat" checked><span>Include the anatomy (muscles, bones, nerves, dermatomes, pattern notes)</span></label>
+          <div class="row"><button id="copyBtn" class="primary">Copy prompt</button><button id="genBtn">Refresh</button><span id="promptCount" class="muted" style="font-size:12px"></span></div>
+          <textarea id="promptOut" spellcheck="false" aria-label="Generated prompt"></textarea>
+          <p class="hint">This tool helps you describe pain clearly; it does not diagnose. Anatomy is estimated from where marks sit on a standard body. If you have warning signs, seek medical care promptly.</p>
+        </div>
+      </div>
+    </aside>
+  </main>
+  <div id="modal" hidden><div id="modalBody"></div></div>
+</div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+/*APP_JS*/
+</script>

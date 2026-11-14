@@ -1,0 +1,16 @@
+# Downloaded BodyParts3D archives and their unpacked meshes (~880 MB) — kept in this folder, not in git.
+# Re-create with the steps in README.md if needed.
+atlas/raw/
+atlas/raw_isa/
+atlas/obj/
+atlas/obj_isa/
+atlas/cache/
+
+# Generated build outputs (re-created by `python build.py`)
+data/
+painmap-3d-offline.html
+
+# Build tool dependencies and temporary generated modules
+tools/node_modules/
+tools/_*.mjs
+__pycache__/
