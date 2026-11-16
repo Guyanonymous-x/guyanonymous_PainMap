@@ -1,19 +1,23 @@
 // ===================== load precomputed body data =====================
 // The web version fetches body-<sex>.bin next to the page; the offline file embeds it as base64.
 const bodyCache = {};
+// Decode base64 in the page itself. (Fetching a data: URL is blocked by the published page's security policy.)
+function b64ToBytes(b64) {
+  const bin = atob(b64.replace(/\s+/g, '')), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 async function fetchBodyBytes(sex) {
   let bytes;
   const emb = document.getElementById('data-body-' + sex);
   if (emb) {
-    const r = await fetch('data:application/octet-stream;base64,' + emb.textContent.trim());
-    bytes = new Uint8Array(await r.arrayBuffer());
+    bytes = b64ToBytes(emb.textContent);
   } else {
     // data ships as base64 text (body-<sex>.txt) next to the page
     let r = await fetch('body-' + sex + '.txt').catch(() => null);
     if (!r || !r.ok) r = await fetch('data/body-' + sex + '.txt').catch(() => null);
     if (!r || !r.ok) throw new Error('Could not load the ' + sex + ' body data. Check your connection and reload the page.');
-    const b64 = (await r.text()).trim();
-    bytes = new Uint8Array(await (await fetch('data:application/octet-stream;base64,' + b64)).arrayBuffer());
+    bytes = b64ToBytes(await r.text());
   }
   if (bytes[0] === 0x1f && bytes[1] === 0x8b) { // gzip
     const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
