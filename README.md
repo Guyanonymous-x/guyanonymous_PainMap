@@ -21,6 +21,10 @@ Published (private) link: https://claude.ai/artifact/VMX35i2escjmzfJVAYui8y
 | `tools/precompute.mjs` | Builds the body data files (run by `build.py`) |
 | `build.py` | Builds `painmap-3d.html` (web) and `painmap-3d-offline.html` (single file, data embedded) |
 
+## Releases
+
+Each release is a whole number (v1, v2, v3…), tagged in git with the same name. Its build files are saved locally in `!Releases\v<N>\` (offline file, web page, model data, checksums); git keeps only the release notes and checksums. A released version is never changed: any later change becomes the next version.
+
 ## Build
 
 Requires Node.js and Python 3.

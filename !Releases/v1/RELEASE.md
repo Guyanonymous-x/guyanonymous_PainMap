@@ -1,6 +1,6 @@
-# PainMap 3D — v1.0.0
+# PainMap 3D — v1
 
-Released 2026-11-16. Git tag `v1.0.0`. Published as version 6 of the private link https://claude.ai/artifact/VMX35i2escjmzfJVAYui8y.
+Released 2026-11-16. Git tag `v1`. Published as version 6 of the private link https://claude.ai/artifact/VMX35i2escjmzfJVAYui8y.
 
 This release is closed. Any further change is a new version.
 
@@ -13,7 +13,7 @@ This release is closed. Any further change is a new version.
 | `body-male.txt`, `body-female.txt` | Precomputed body models and anatomy layers (gzip, base64). |
 | `SHA256SUMS.txt` | Checksums to confirm the files are unchanged. |
 
-## What v1.0.0 does
+## What v1 does
 
 - Male and female 3D bodies in a relaxed T-pose, legs spread and buttocks parted; anatomically complete, clinical (not photorealistic); detailed face, hands, feet and pelvic floor; zoom presets.
 - Mark pain as areas, spreading paths (START/END tags, direction arrows) and pinpoint spots, in 11 pain types; erase areas, points and parts of paths; undo.
