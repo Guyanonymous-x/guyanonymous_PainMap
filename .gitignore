@@ -14,3 +14,7 @@ painmap-3d-offline.html
 tools/node_modules/
 tools/_*.mjs
 __pycache__/
+
+# Release build files are kept locally in releases/<version>/ (large); only notes and checksums are in git
+releases/*/*.html
+releases/*/body-*.txt
