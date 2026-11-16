@@ -47,6 +47,10 @@ h4 { margin: 4px 0 0; font-size: 13px; }
 p { margin: 0; }
 .muted { color: var(--muted); }
 .pad { padding: 12px 14px; display: grid; gap: 10px; }
+.stack { display: grid; gap: 3px; }
+.srow { display: flex; align-items: center; gap: 8px; text-align: left; padding: 5px 8px; font-size: 12.5px; background: var(--panel-2); }
+.srow.on { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.srow .lay { flex: none; }
 .credit p { font-size: 11.5px; color: var(--muted); }
 .credit a { color: var(--accent); }
 #tools { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
@@ -1845,7 +1849,7 @@ function buildBodyFromData(D, sex) {
   const skin = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.66, metalness: 0 })); skin.userData = { shell: 'skin' };
   const mpos = new Float32Array(n * 3);
   for (let i = 0; i < n * 3; i++) mpos[i] = pos[i] - nor[i] * 0.0028;
-  const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.BufferAttribute(mpos, 3)); mg.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); mg.setIndex(new THREE.BufferAttribute(idx, 1));
+  const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.BufferAttribute(mpos, 3)); mg.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); mg.setIndex(new THREE.BufferAttribute(idx.slice(), 1)); // own copy: the picking index (BVH) reorders index buffers in place
   const mcol = new Float32Array(n * 4); mg.setAttribute('color', new THREE.BufferAttribute(mcol, 4));
   const muscle = new THREE.Mesh(mg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0 })); muscle.userData = { shell: 'muscle' };
   const list = H.cls, clsId = D.clsId, lvl = D.lvl;
@@ -2252,7 +2256,7 @@ let BVH = null;
 import('https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.6/build/index.module.js').then(m => { BVH = m; if (B) applyBVH(); }).catch(() => { });
 function applyBVH() {
   if (!BVH || !B) return;
-  for (const mesh of [B.skin, B.muscle]) { mesh.geometry.boundsTree = new BVH.MeshBVH(mesh.geometry); mesh.raycast = BVH.acceleratedRaycast; }
+  for (const mesh of [B.skin, ...B.atlasMeshes]) { mesh.geometry.boundsTree = new BVH.MeshBVH(mesh.geometry); mesh.raycast = BVH.acceleratedRaycast; }
 }
 
 // ---------- colors ----------
@@ -2320,7 +2324,7 @@ function areaMarks() { return S.marks.filter(m => m.kind === 'area' && m.visible
 function recolor(verts) {
   const AM = areaMarks().map(m => ({ w: m.w, c: hex(QMAP[m.type].color), sel: m.id === S.selId }));
   const base = S.skinMode === 'derm' ? B.dermBase : S.skinMode === 'muscles' ? B.musBase : B.skinBase, mb = B.musBase, col = B.col, mcol = B.mcol;
-  const inner = innerOn(), alphaSkin = inner ? S.xray : 1, alphaMus = (S.layers.muscle && deepOn()) ? Math.min(1, S.xray * 2.2 + 0.15) : 1;
+  const inner = innerOn(), alphaSkin = !S.layers.skin ? 0 : inner ? S.xray : 1, alphaMus = (S.layers.muscle && deepOn()) ? Math.min(1, S.xray * 2.2 + 0.15) : 1;
   const apply = v => {
     let r = base[v * 3], g = base[v * 3 + 1], b = base[v * 3 + 2];
     let mr = mb[v * 3], mg = mb[v * 3 + 1], mbb = mb[v * 3 + 2], pw = 0;
@@ -2338,8 +2342,10 @@ function deepOn() { return INNER.filter(k => k !== 'muscle').some(k => S.layers[
 function applyLayers() {
   if (!B) return;
   const inner = innerOn();
-  B.skin.visible = S.layers.skin;
-  const sm = B.skin.material; sm.transparent = inner; sm.depthWrite = !inner; sm.needsUpdate = true;
+  // with the skin layer off, the skin stays as an invisible surface so painted pain still shows (and can be painted)
+  B.skin.visible = S.layers.skin || S.layers.marks;
+  const seeThroughSkin = inner || !S.layers.skin;
+  const sm = B.skin.material; sm.transparent = seeThroughSkin; sm.depthWrite = !seeThroughSkin; sm.needsUpdate = true;
   B.skin.renderOrder = 3;
   B.muscle.visible = false; // 3D atlas muscles replace the old surface shell (its colours remain as "Skin shows: muscle map")
   for (const k of INNER) B.structures.groups[k].visible = S.layers[k];
@@ -2432,15 +2438,43 @@ function pickSkin(e) {
   const nn = new THREE.Vector3(B.nor[best * 3], B.nor[best * 3 + 1], B.nor[best * 3 + 2]);
   return { point: h.point, v: best, n: nn };
 }
-function pickHover(e) {
-  setNDC(e);
-  const targets = [];
-  if (B.skin.visible) targets.push(B.skin);
-  for (const k of INNER) if (B.structures.groups[k].visible) targets.push(...B.structures.groups[k].children);
-  const hits = ray.intersectObjects(targets, false);
-  if (!hits.length) return null;
-  const solid = hits.find(h => !h.object.material.transparent);
-  return solid || hits[0];
+// pick everything under (and just around) the pointer: a ring of rays makes thin nerves and tendons easy to hit
+const PICK_RING = [[0, 0], [9, 0], [-9, 0], [0, 9], [0, -9], [6.5, 6.5], [-6.5, 6.5], [6.5, -6.5], [-6.5, -6.5]];
+const GROUP_LAYERS = new Set(['muscle', 'tendon', 'ligament']); // whole muscle/tendon lights up, not just the piece under the pointer
+const sideOfName = n => /\bleft\b/i.test(n) ? 'left' : /\bright\b/i.test(n) ? 'right' : 'midline';
+function pickTargets() {
+  const t = [];
+  if (S.layers.skin) t.push(B.skin);
+  for (const k of INNER) if (B.structures.groups[k].visible) t.push(...B.structures.groups[k].children);
+  return t;
+}
+function pickAll(e, cam = camera, rect = null) {
+  const r = rect || canvas.getBoundingClientRect(), targets = pickTargets(), found = new Map();
+  PICK_RING.forEach(([dx, dy], ri) => {
+    ndc.set(((e.clientX + dx - r.left) / r.width) * 2 - 1, -((e.clientY + dy - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, cam);
+    for (const h of ray.intersectObjects(targets, false)) {
+      const obj = h.object, dist = h.distance + ri * 1e-4; let key, it;
+      if (obj === B.skin) { if (ri) continue; const v = hitVertex(h), R = B.cls(v); key = 'S'; it = { kind: 'surface', layer: 'skin', v, R, side: R.side, name: R.zone }; }
+      else if (obj.userData.atlas) {
+        const pi = obj.userData.pid[h.face.a], part = B.atlasParts[pi], side = sideOfName(part.name), layer = obj.userData.layer;
+        key = GROUP_LAYERS.has(layer) ? 'G' + part.id + '|' + side : 'P' + layer + pi;
+        it = { kind: 'atlas', layer, id: part.id, side, part, pi, name: GROUP_LAYERS.has(layer) ? groupTitle(part, side) : atlasTitle(part) };
+      } else if (obj.userData.id) {
+        const side = h.point.x > 0.006 ? 'left' : h.point.x < -0.006 ? 'right' : 'midline';
+        key = 'B' + obj.userData.id + '|' + side; it = { kind: 'built', layer: obj.userData.layer, id: obj.userData.id, side, name: (side === 'left' ? 'L · ' : side === 'right' ? 'R · ' : '') + label(obj.userData.id) };
+      } else continue;
+      const prev = found.get(key); if (!prev || dist < prev.dist) found.set(key, { ...it, key, dist });
+    }
+  });
+  return [...found.values()].sort((a, b) => a.dist - b.dist).slice(0, 10);
+}
+// all atlas pieces that belong to one structure on one side (e.g. both heads of biceps, all parts of the deltoid)
+function groupTitle(part, side) { const d = info(part.id); return (side === 'left' ? 'L · ' : side === 'right' ? 'R · ' : '') + d.name; }
+function atlasPieces(it) {
+  if (!GROUP_LAYERS.has(it.layer)) { for (const m of B.atlasMeshes) if (m.userData.layer === it.layer && m.userData.ranges.has(it.pi)) return [{ m, r: m.userData.ranges.get(it.pi), pi: it.pi }]; return []; }
+  const out = [];
+  for (const m of B.atlasMeshes) { if (m.userData.layer !== it.layer) continue; for (const [pi, r] of m.userData.ranges) { const p = B.atlasParts[pi]; if (p.id === it.id && sideOfName(p.name) === it.side) out.push({ m, r, pi }); } }
+  return out;
 }
 function hitVertex(h) { const f = h.face; let best = f.a, bd = 1e9; const pos = h.object.geometry.attributes.position; const tmp = new THREE.Vector3(); for (const v of [f.a, f.b, f.c]) { tmp.fromBufferAttribute(pos, v); const d = tmp.distanceToSquared(h.point); if (d < bd) { bd = d; best = v; } } return best; }
 
@@ -2509,8 +2543,13 @@ canvas.addEventListener('pointerdown', e => {
   if (e.pointerType === 'touch' && activePointers.size > 1) { if (stroke) endStroke(); return; }
   if (S.tool === 'explore') { stroke = { explore: true, x: e.clientX, y: e.clientY }; return; }
   if (e.button !== 0) return;
-  const hit = pickSkin(e); if (!hit) return;
   e.preventDefault(); canvas.setPointerCapture(e.pointerId);
+  const hit = pickSkin(e);
+  // pressing down just off the body is fine: the stroke starts as soon as the pointer reaches the body
+  if (!hit) { if (S.tool !== 'point') stroke = { pending: true }; return; }
+  beginStroke(hit);
+});
+function beginStroke(hit) {
   if (S.tool === 'brush' || S.tool === 'erase') {
     let mark = null; const sel = getMark(S.selId);
     if (S.tool === 'brush') { mark = sel && sel.kind === 'area' && sel.type === S.quality ? sel : newMarkWithUndo('area'); if (!mark.visible) mark.visible = true; }
@@ -2523,13 +2562,14 @@ canvas.addEventListener('pointerdown', e => {
   } else if (S.tool === 'point') {
     const mark = newMarkWithUndo('point'); mark.pts.push(hit.v); markVisual(mark); refreshUI(); save(); stroke = null;
   }
-});
+}
 function newMarkWithUndo(kind) { const m = newMark(kind, S.quality); pushUndo({ t: 'add', id: m.id }); return m; }
 canvas.addEventListener('pointermove', e => {
   if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, e);
   if (!B) return;
   if (stroke && !stroke.explore) {
     const hit = pickSkin(e); if (!hit) return;
+    if (stroke.pending) { beginStroke(hit); updateCursor(hit); return; }
     if (stroke.line) { if (hit.point.distanceTo(stroke.lastP) > 0.008) { const m = stroke.mark; if (m.pts[m.pts.length - 1] !== hit.v) m.pts.push(hit.v); stroke.lastP = hit.point.clone(); markVisual(m); } }
     else strokeTo(hit);
     updateCursor(hit);
@@ -2539,6 +2579,7 @@ canvas.addEventListener('pointermove', e => {
 });
 function endStroke() {
   if (!stroke) return;
+  if (stroke.pending) { stroke = null; return; } // never reached the body
   if (stroke.mark && stroke.snaps && !stroke.erase) { pushUndo({ t: 'w', snaps: stroke.snaps }); }
   if (stroke.erase) pushUndo({ t: 'erase', snaps: stroke.snaps, prevMarks: stroke.prevMarks, prevPts: stroke.prevPts });
   if (stroke.line && stroke.mark.pts.length < 2) { undoStack.pop(); deleteMark(stroke.mark.id, true); }
@@ -2549,7 +2590,7 @@ const upHandler = e => {
   activePointers.delete(e.pointerId);
   if (stroke && stroke.explore) {
     const moved = Math.hypot(e.clientX - stroke.x, e.clientY - stroke.y) > 5; stroke = null;
-    if (!moved) { const h = pickHover(e); if (h) { inspectHit(h, true); } else { insp.locked = false; renderInspector(); } }
+    if (!moved) { if (!inspectAt(e, true)) { insp.locked = false; clearHoverHighlight(); renderInspector(); } }
     return;
   }
   endStroke();
@@ -2577,85 +2618,92 @@ function updateCursor(hit) {
 function doHover(e) {
   if (!B || e.pointerType === 'touch') return;
   if (S.tool !== 'explore') { const hit = pickSkin(e); if (hit) updateCursor(hit); else cursorRing.visible = false; }
-  const h = pickHover(e); const tip = $('#tip');
-  if (!h) { tip.hidden = true; return; }
-  const name = inspectHit(h, false);
+  const tip = $('#tip'); const name = inspectAt(e, false);
+  if (!name) { tip.hidden = true; return; }
   tip.hidden = false; tip.textContent = name;
   const r = canvas.getBoundingClientRect(); const tx = e.clientX - r.left + 14, ty = e.clientY - r.top + 14;
   tip.style.left = Math.min(tx, r.width - 260) + 'px'; tip.style.top = Math.min(ty, r.height - 40) + 'px';
 }
 
 // ---------- inspector ----------
-const insp = { locked: false, data: null, focus: null };
-let hoverMeshes = [];
-let hoverAtlas = null; // { mesh, range }
+const insp = { locked: false, data: null, focus: null, sel: 0 };
+let lit = []; // highlighted things, to restore
 function clearHoverHighlight() {
-  for (const m of hoverMeshes) m.material.emissive.setHex(m.userData.baseEmissive); hoverMeshes = [];
-  if (hoverAtlas) { const { mesh, r } = hoverAtlas, c = mesh.geometry.attributes.color; c.array.set(mesh.userData.baseCol.subarray(r[0] * 3, r[1] * 3), r[0] * 3); c.needsUpdate = true; hoverAtlas = null; }
-  if (B && B.hoverMus) { const vs = B.musVerts.get(B.hoverMus) || []; B.hoverMus = null; recolor(vs); }
-}
-const sideLabel = s => s === 'left' ? 'LEFT side (patient\'s left)' : s === 'right' ? 'RIGHT side (patient\'s right)' : 'Midline (centre)';
-function inspectHit(h, lock) {
-  if (insp.locked && !lock) return tipName(h);
-  clearHoverHighlight();
-  const obj = h.object;
-  let data;
-  if (obj.userData.atlas) {
-    const pi = obj.userData.pid[h.face.a], part = B.atlasParts[pi], side = /\bleft\b/i.test(part.name) ? 'left' : /\bright\b/i.test(part.name) ? 'right' : 'midline';
-    data = { kind: 'structure', id: part.id, side, atlasName: part.name };
-    const r = obj.userData.ranges.get(pi), c = obj.geometry.attributes.color;
-    for (let v = r[0]; v < r[1]; v++) { c.array[v * 3] = 1; c.array[v * 3 + 1] = 0.55; c.array[v * 3 + 2] = 0.2; }
-    c.needsUpdate = true; hoverAtlas = { mesh: obj, r };
-  } else if (obj.userData.id) {
-    const id = obj.userData.id; const side = h.point.x > 0.006 ? 'left' : h.point.x < -0.006 ? 'right' : 'midline';
-    data = { kind: 'structure', id, side };
-    for (const m of B.structures.byId.get(id) || []) { m.material.emissive.setHex(0xff7a2f); hoverMeshes.push(m); }
-  } else {
-    const v = hitVertex(h); const R = B.cls(v);
-    data = { kind: 'surface', v, R, shell: obj.userData.shell };
-    if (obj.userData.shell === 'muscle' && B.musId[v]) { B.hoverMus = B.musId[v]; recolor(B.musVerts.get(B.hoverMus)); }
+  for (const L of lit) {
+    if (L.mesh) L.mesh.material.emissive.setHex(L.mesh.userData.baseEmissive);
+    else { const c = L.m.geometry.attributes.color; c.array.set(L.m.userData.baseCol.subarray(L.r[0] * 3, L.r[1] * 3), L.r[0] * 3); c.needsUpdate = true; }
   }
-  insp.data = data; insp.focus = null; if (lock) insp.locked = true;
-  renderInspector();
-  return tipName(h);
+  lit = [];
 }
-function tipName(h) {
-  const obj = h.object;
-  if (obj.userData.atlas) { const part = B.atlasParts[obj.userData.pid[h.face.a]]; return atlasTitle(part); }
-  if (obj.userData.id) { const side = h.point.x > 0.006 ? 'L' : h.point.x < -0.006 ? 'R' : ''; return (side ? side + ' · ' : '') + label(obj.userData.id) + (['nerve', 'ligament', 'tendon', 'cartilage'].includes(obj.userData.layer) ? ' (schematic)' : ''); }
-  const v = hitVertex(h), R = B.cls(v);
-  if (obj.userData.shell === 'muscle' && R.m[0]) return (R.side === 'left' ? 'L · ' : R.side === 'right' ? 'R · ' : '') + label(R.m[0]);
-  return (R.side === 'left' ? 'L · ' : R.side === 'right' ? 'R · ' : '') + R.zone;
+function highlightItems(items, focusIdx) {
+  clearHoverHighlight();
+  items.forEach((it, i) => {
+    const strong = i === focusIdx;
+    if (it.kind === 'atlas') for (const pc of atlasPieces(it)) {
+      const c = pc.m.geometry.attributes.color, col = strong ? [1, 0.55, 0.2] : [1, 0.86, 0.45];
+      for (let v = pc.r[0]; v < pc.r[1]; v++) { c.array[v * 3] = col[0]; c.array[v * 3 + 1] = col[1]; c.array[v * 3 + 2] = col[2]; }
+      c.needsUpdate = true; lit.push({ m: pc.m, r: pc.r });
+    } else if (it.kind === 'built') for (const mesh of B.structures.byId.get(it.id) || []) { mesh.material.emissive.setHex(strong ? 0xff7a2f : 0x7a5a10); lit.push({ mesh }); }
+  });
 }
-// "Left extensor carpi radialis brevis" -> "Extensor carpi radialis brevis (L)"; atlas names are exact anatomical names
+const sideLabel = s => s === 'left' ? "LEFT side (patient's left)" : s === 'right' ? "RIGHT side (patient's right)" : 'Midline (centre)';
+function inspectAt(e, lock, cam, rect) {
+  const items = pickAll(e, cam, rect);
+  if (insp.locked && !lock) return items.length ? tipText(items) : null;
+  if (!items.length) { if (!insp.locked) clearHoverHighlight(); return null; }
+  insp.data = { kind: 'multi', items }; insp.sel = 0; insp.focus = null; if (lock) insp.locked = true;
+  highlightItems(items, 0); renderInspector();
+  return tipText(items);
+}
+function tipText(items) { const first = items.find(i => i.kind !== 'surface') || items[0]; return first.name + (items.length > 1 ? '  (+' + (items.length - 1) + ' more in the panel)' : ''); }
+// "Left extensor carpi radialis brevis" -> "L · Extensor carpi radialis brevis"; atlas names are exact anatomical names
 function atlasTitle(part) {
   const side = /\bleft\b/i.test(part.name) ? 'L' : /\bright\b/i.test(part.name) ? 'R' : '';
   const n = part.name.replace(/\b(left|right)\b ?/gi, '').replace(/ of (hand|foot)$/, ' ($1)').trim();
   return (side ? side + ' · ' : '') + n.charAt(0).toUpperCase() + n.slice(1);
 }
-function infoCard(id, side, atlasName) {
+function infoCard(id, side, atlasName, pieces) {
   const d = info(id);
   const exact = atlasName ? atlasName.replace(/\b(left|right)\b ?/gi, '').trim() : '';
   const showExact = exact && exact.toLowerCase() !== d.name.toLowerCase();
-  return `<div class="card"><div class="card-h"><span class="lay lay-${d.layer}">${esc(LAYER_NAMES[d.layer] || d.layer)}</span>${side && side !== 'midline' ? `<span class="side">${side === 'left' ? 'Patient\'s LEFT' : 'Patient\'s RIGHT'}</span>` : ''}${atlasName ? '<span class="side">3D atlas</span>' : ['nerve', 'ligament', 'tendon', 'cartilage'].includes(d.layer) ? '<span class="side">schematic</span>' : ''}</div>
-  ${showExact ? `<h3>${esc(exact.charAt(0).toUpperCase() + exact.slice(1))}</h3><p class="plain">part of: ${esc(d.name)}${d.plain ? ' (' + esc(d.plain) + ')' : ''}</p>` : `<h3>${esc(d.name)}</h3>${d.plain ? `<p class="plain">${esc(d.plain)}</p>` : ''}`}
+  const schematic = !atlasName && !pieces && ['nerve', 'ligament', 'tendon', 'cartilage'].includes(d.layer);
+  const sideTag = side && side !== 'midline' ? `<span class="side">${side === 'left' ? "Patient's LEFT" : "Patient's RIGHT"}</span>` : '';
+  const srcTag = atlasName || pieces ? '<span class="side">3D atlas</span>' : schematic ? '<span class="side">schematic</span>' : '';
+  const head = showExact ? `<h3>${esc(exact.charAt(0).toUpperCase() + exact.slice(1))}</h3><p class="plain">part of: ${esc(d.name)}${d.plain ? ' (' + esc(d.plain) + ')' : ''}</p>` : `<h3>${esc(d.name)}</h3>${d.plain ? `<p class="plain">${esc(d.plain)}</p>` : ''}`;
+  const parts = pieces && pieces.length > 1 ? `<p class="meta">Highlighted along its full length: ${esc(pieces.join('; '))}</p>` : '';
+  return `<div class="card"><div class="card-h"><span class="lay lay-${d.layer}">${esc(LAYER_NAMES[d.layer] || d.layer)}</span>${sideTag}${srcTag}</div>${head}${parts}
   ${d.desc ? `<dl><dt>What it is</dt><dd>${esc(d.desc)}</dd>` : '<dl>'}${d.func && d.func !== '—' ? `<dt>What it does</dt><dd>${esc(d.func)}</dd>` : ''}${d.pain ? `<dt>Pain relevance</dt><dd>${esc(d.pain)}</dd>` : ''}</dl></div>`;
 }
 function chipRow(title, ids) { if (!ids.length) return ''; return `<div class="chips-t">${title}</div><div class="chips">${ids.map(id => `<button class="chip" data-focus="${esc(id)}">${esc(label(id))}</button>`).join('')}</div>`; }
-function renderInspector() {
-  const el = $('#inspBody'); const d = insp.data;
-  $('#inspLock').hidden = !insp.locked;
-  if (!d) { el.innerHTML = '<p class="muted">Point at (or tap) the body or any anatomy layer to see what is there: the name, what it does and why it can hurt.</p>'; return; }
-  if (d.kind === 'structure') { el.innerHTML = infoCard(d.id, d.side, d.atlasName); return; }
-  const R = d.R; const focus = insp.focus || (d.shell === 'muscle' ? R.m[0] : null) || R.m[0] || R.s[0] || R.b[0] || R.nv[0];
-  const lv = B.lvl[d.v] >= 0 && R.asp && (R.asp.startsWith('posterior') || R.seg === 'neck') ? LEVELS[B.lvl[d.v]].name : '';
+function surfaceBlock(R, v) {
+  const focus = insp.focus || R.m[0] || R.s[0] || R.b[0] || R.nv[0];
+  const lv = B.lvl[v] >= 0 && R.asp && (R.asp.startsWith('posterior') || R.seg === 'neck') ? LEVELS[B.lvl[v]].name : '';
   const dr = R.derm ? (ROOTS[R.derm.match(/[CTLS]\d+/)?.[0]] || null) : null;
-  el.innerHTML = `<div class="where"><div class="side-pill ${R.side}">${esc(sideLabel(R.side))}</div><h3>${esc(R.zone)}</h3>
+  return `<div class="where"><div class="side-pill ${R.side}">${esc(sideLabel(R.side))}</div><h3>${esc(R.zone)}</h3>
    <p class="meta">${R.asp ? 'Surface: ' + esc(ASP[R.asp] || R.asp) + ' · ' : ''}${R.derm ? 'Dermatome (skin strip): <b>' + esc(R.derm) + '</b>' + (dr ? ' — ' + esc(dr[0]) : '') : ''}${lv ? ' · Spinal level ≈ ' + lv : ''}</p></div>
    ${chipRow('Muscles', R.m)}${chipRow('Tendons, ligaments, joints & regions', R.s)}${chipRow('Bones', R.b)}${chipRow('Nerves', R.nv)}
    ${R.visc.length ? `<div class="chips-t">Organs / vessels nearby</div><p class="visc">${esc(R.visc.join('; '))}</p>` : ''}
    ${focus ? infoCard(focus, R.side) : ''}`;
-  el.querySelectorAll('[data-focus]').forEach(b => { if (b.dataset.focus === focus) b.classList.add('on'); b.onclick = () => { insp.focus = b.dataset.focus; insp.locked = true; renderInspector(); }; });
+}
+const STACK_LBL = { skin: 'Skin', muscle: 'Muscle', bone: 'Bone', nerve: 'Nerve', tendon: 'Tendon', ligament: 'Ligament', cartilage: 'Cartilage', organ: 'Organ', vessel: 'Vessel' };
+function renderInspector() {
+  const el = $('#inspBody'); const d = insp.data;
+  $('#inspLock').hidden = !insp.locked;
+  if (!d) { el.innerHTML = '<p class="muted">Point at (or tap) the body or any anatomy layer. Everything under the pointer is listed here: names, what each part does and why it can hurt.</p>'; return; }
+  if (d.kind === 'structure') { el.innerHTML = infoCard(d.id, d.side); return; }
+  const items = d.items, sel = Math.min(insp.sel, items.length - 1), it = items[sel];
+  const rowName = x => esc(x.kind === 'surface' ? (x.side === 'left' ? 'L · ' : x.side === 'right' ? 'R · ' : '') + x.name : x.name);
+  const list = items.length > 1 ? `<div class="chips-t">Under the pointer, front to back (${items.length})</div><div class="stack">${items.map((x, i) => `<button class="srow ${i === sel ? 'on' : ''}" data-sel="${i}"><span class="lay lay-${x.layer === 'skin' ? 'joint' : x.layer}">${STACK_LBL[x.layer] || x.layer}</span><span>${rowName(x)}</span></button>`).join('')}</div>` : '';
+  let body;
+  if (it.kind === 'surface') body = surfaceBlock(it.R, it.v);
+  else if (it.kind === 'atlas') {
+    const grouped = GROUP_LAYERS.has(it.layer);
+    const pieces = grouped ? atlasPieces(it).map(pc => B.atlasParts[pc.pi].name.replace(/\b(left|right)\b ?/gi, '').trim()) : undefined;
+    body = infoCard(it.id, it.side, grouped ? null : it.part.name, pieces);
+  } else body = infoCard(it.id, it.side);
+  el.innerHTML = list + body;
+  el.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => { insp.sel = +b.dataset.sel; insp.focus = null; insp.locked = true; highlightItems(items, insp.sel); renderInspector(); });
+  el.querySelectorAll('[data-focus]').forEach(b => { if (b.dataset.focus === (insp.focus || '')) b.classList.add('on'); b.onclick = () => { insp.focus = b.dataset.focus; insp.locked = true; renderInspector(); }; });
 }
 $('#inspLock').onclick = () => { insp.locked = false; renderInspector(); };
 
@@ -2948,12 +2996,17 @@ setLoading('Loading the 3D body…');
   installBody(body); setLoading(null); resize();
   if (!(saved && loadState(saved) && (saved.marks || []).length)) { if (!saved) loadExample(); else { fillPatientForm(); refreshUI(); } }
   goView('front'); renderInspector();
-  window.__pm = { S, get B() { return B; }, info, genPrompt, loadMs: Math.round(performance.now() - t0), test: { stampArea, undo, startTag, endTag, startRing, tapAt: (k, fx, fy) => { // debug: tap at a fraction of a 560x760 view (works while the page is hidden)
+  window.__pm = { S, get B() { return B; }, info, genPrompt, loadMs: Math.round(performance.now() - t0), test: { stampArea, undo, startTag, endTag, startRing, pickAll, pickTargets, pickSkinAt: (k, fx, fy) => { // debug: skin hit test from a 560x760 preset view
     const v = views()[k], s = B.P.s, t = new THREE.Vector3(...v[0]).multiplyScalar(s), d = new THREE.Vector3(...v[1]).normalize();
     const cam = camera.clone(); cam.aspect = 560 / 760; cam.updateProjectionMatrix(); cam.position.copy(t).addScaledVector(d, ['front', 'back', 'left', 'right'].includes(k) ? 3.6 * s : v[2]); cam.lookAt(t); cam.updateMatrixWorld();
-    const origSet = ray.setFromCamera.bind(ray); ray.setFromCamera = () => origSet(new THREE.Vector2(fx * 2 - 1, -(fy * 2 - 1)), cam);
-    const h = pickHover({ clientX: 0, clientY: 0 }); ray.setFromCamera = origSet; if (!h) return null;
-    const name = inspectHit(h, true); return { name, panel: $('#inspBody').innerText.slice(0, 500) };
+    ray.setFromCamera(new THREE.Vector2(fx * 2 - 1, -(fy * 2 - 1)), cam); ray.firstHitOnly = true; const h = ray.intersectObject(B.skin, false); ray.firstHitOnly = false; return h.length ? h[0].distance : -1;
+  }, tapAt: (k, fx, fy) => { // debug: tap at a fraction of a 560x760 view (works while the page is hidden)
+    const v = views()[k], s = B.P.s, t = new THREE.Vector3(...v[0]).multiplyScalar(s), d = new THREE.Vector3(...v[1]).normalize();
+    const cam = camera.clone(); cam.aspect = 560 / 760; cam.updateProjectionMatrix(); cam.position.copy(t).addScaledVector(d, ['front', 'back', 'left', 'right'].includes(k) ? 3.6 * s : v[2]); cam.lookAt(t); cam.updateMatrixWorld();
+    const ev = { clientX: fx * 560, clientY: fy * 760 }, rect = { left: 0, top: 0, width: 560, height: 760 };
+    const items = pickAll(ev, cam, rect).map(i => i.layer + ':' + i.name + '@' + i.dist.toFixed(3));
+    const name = inspectAt(ev, true, cam, rect);
+    return name ? { name, items, panel: $('#inspBody').innerText.slice(0, 700) } : { items };
   }, snap: (k, w = 560, h = 760) => { // debug: render a preset view to a JPEG data URL (works while the page is hidden)
     const v = views()[k]; const s = B.P.s; const t = new THREE.Vector3(...v[0]).multiplyScalar(s); const d = new THREE.Vector3(...v[1]).normalize();
     let dist = v[2]; if (['front', 'back', 'left', 'right'].includes(k)) dist = 3.6 * s;

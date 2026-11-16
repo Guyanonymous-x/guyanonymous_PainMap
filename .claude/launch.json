@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "painmap", "runtimeExecutable": "python", "runtimeArgs": ["-m", "http.server", "8765"], "port": 8765, "autoPort": false }
+    { "name": "painmap", "runtimeExecutable": "python", "runtimeArgs": ["-m", "http.server", "8770"], "port": 8770, "autoPort": false }
   ]
 }

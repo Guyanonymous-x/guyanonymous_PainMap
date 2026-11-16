@@ -59,7 +59,7 @@ function buildBodyFromData(D, sex) {
   const skin = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.66, metalness: 0 })); skin.userData = { shell: 'skin' };
   const mpos = new Float32Array(n * 3);
   for (let i = 0; i < n * 3; i++) mpos[i] = pos[i] - nor[i] * 0.0028;
-  const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.BufferAttribute(mpos, 3)); mg.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); mg.setIndex(new THREE.BufferAttribute(idx, 1));
+  const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.BufferAttribute(mpos, 3)); mg.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); mg.setIndex(new THREE.BufferAttribute(idx.slice(), 1)); // own copy: the picking index (BVH) reorders index buffers in place
   const mcol = new Float32Array(n * 4); mg.setAttribute('color', new THREE.BufferAttribute(mcol, 4));
   const muscle = new THREE.Mesh(mg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0 })); muscle.userData = { shell: 'muscle' };
   const list = H.cls, clsId = D.clsId, lvl = D.lvl;
